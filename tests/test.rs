@@ -1,6 +1,8 @@
 use serde_derive::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+mod nvd;
+
 schemafy::schemafy!(
     root: Schema
     "schemafy_lib/src/schema.json"
