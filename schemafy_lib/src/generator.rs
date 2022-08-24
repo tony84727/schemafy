@@ -22,7 +22,7 @@ pub struct Generator<'a, 'b> {
     /// the default should be fine.
     pub schemafy_path: &'a str,
     /// The JSON schema file to read
-    pub input_file: &'b Path,
+    pub input_file: Input<'b>,
 }
 
 impl<'a, 'b> Generator<'a, 'b> {
@@ -31,12 +31,12 @@ impl<'a, 'b> Generator<'a, 'b> {
         GeneratorBuilder::default()
     }
 
-    pub fn generate(&self) -> proc_macro2::TokenStream {
-        let input_file = if self.input_file.is_relative() {
+    fn generate_from_file(&self, input: &'b Path) -> proc_macro2::TokenStream {
+        let input_file = if input.is_relative() {
             let crate_root = get_crate_root().unwrap();
-            crate_root.join(self.input_file)
+            crate_root.join(input)
         } else {
-            PathBuf::from(self.input_file)
+            PathBuf::from(input)
         };
 
         let json = std::fs::read_to_string(&input_file).unwrap_or_else(|err| {
@@ -52,6 +52,17 @@ impl<'a, 'b> Generator<'a, 'b> {
         });
         let mut expander = Expander::new(self.root_name.as_deref(), self.schemafy_path, &schema);
         expander.expand(&schema)
+    }
+
+    fn generate_from_unknown(&self, input: &'b str) -> proc_macro2::TokenStream {
+        unimplemented!()
+    }
+
+    pub fn generate(&self) -> proc_macro2::TokenStream {
+        match self.input_file {
+            Input::File(file) => self.generate_from_file(file),
+            Input::Unknown(input) => self.generate_from_unknown(input),
+        }
     }
 
     pub fn generate_to_file<P: ?Sized + AsRef<Path>>(&self, output_file: &'b P) -> io::Result<()> {
@@ -78,7 +89,7 @@ impl<'a, 'b> Default for GeneratorBuilder<'a, 'b> {
             inner: Generator {
                 root_name: None,
                 schemafy_path: "::schemafy_core::",
-                input_file: Path::new("schema.json"),
+                input_file: Input::File(Path::new("schema.json")),
             },
         }
     }
@@ -94,7 +105,11 @@ impl<'a, 'b> GeneratorBuilder<'a, 'b> {
         self
     }
     pub fn with_input_file<P: ?Sized + AsRef<Path>>(mut self, input_file: &'b P) -> Self {
-        self.inner.input_file = input_file.as_ref();
+        self.inner.input_file = Input::File(input_file.as_ref());
+        self
+    }
+    pub fn with_input(mut self, input: &'b str) -> Self {
+        self.inner.input_file = Input::Unknown(input);
         self
     }
     pub fn with_schemafy_path(mut self, schemafy_path: &'a str) -> Self {
@@ -124,4 +139,10 @@ fn get_crate_root() -> std::io::Result<PathBuf> {
     }
 
     Ok(current_dir)
+}
+
+#[derive(PartialEq, Debug)]
+pub enum Input<'a> {
+    File(&'a Path),
+    Unknown(&'a str),
 }
