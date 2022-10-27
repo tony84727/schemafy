@@ -93,7 +93,7 @@ impl<'a, 'b> GeneratorBuilder<'a, 'b> {
         self.inner.root_name = Some(root_name.to_string());
         self
     }
-    pub fn with_input_file<P: ?Sized + AsRef<Path>>(mut self, input_file: &'b P) -> Self {
+    pub fn with_input<P: ?Sized + AsRef<Path>>(mut self, input_file: &'b P) -> Self {
         self.inner.input_file = input_file.as_ref();
         self
     }

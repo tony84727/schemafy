@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             let schema = schemafy_lib::Generator::builder()
                 .with_root_name_str("Schema")
-                .with_input_file(&schemas_dir.join(schema_name))
+                .with_input(&schemas_dir.join(schema_name))
                 .build()
                 .generate();
 

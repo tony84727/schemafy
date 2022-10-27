@@ -27,7 +27,7 @@ pub fn main() -> Result<()> {
     let mut generated_file = NamedTempFile::new()?;
     Generator::builder()
         .with_root_name_str(&opts.root)
-        .with_input_file(&opts.schema_path)
+        .with_input(&opts.schema_path)
         .build()
         .generate_to_file(
             &generated_file
