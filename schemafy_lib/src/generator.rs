@@ -4,6 +4,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Debug, PartialEq)]
+pub enum Input {
+    File(PathBuf),
+    Url(String),
+}
+
 /// A configurable builder for generating Rust types from a JSON
 /// schema.
 ///
@@ -11,7 +17,7 @@ use std::{
 /// the [`generate()`](fn.generate.html) convenience method instead.
 #[derive(Debug, PartialEq)]
 #[must_use]
-pub struct Generator<'a, 'b> {
+pub struct Generator<'a> {
     /// The name of the root type defined by the schema. If the schema
     /// does not define a root type (some schemas are simply a
     /// collection of definitions) then simply pass `None`.
@@ -22,21 +28,28 @@ pub struct Generator<'a, 'b> {
     /// the default should be fine.
     pub schemafy_path: &'a str,
     /// The JSON schema file to read
-    pub input_file: &'b Path,
+    pub root: Input,
 }
 
-impl<'a, 'b> Generator<'a, 'b> {
+impl<'a> Generator<'a> {
     /// Get a builder for the Generator
-    pub fn builder() -> GeneratorBuilder<'a, 'b> {
+    pub fn builder() -> GeneratorBuilder<'a> {
         GeneratorBuilder::default()
     }
 
     pub fn generate(&self) -> proc_macro2::TokenStream {
-        let input_file = if self.input_file.is_relative() {
+        match &self.root {
+            Input::File(file_path) => self.generate_from_file(file_path),
+            Input::Url(_) => todo!(),
+        }
+    }
+
+    fn generate_from_file(&self, file_path: &Path) -> proc_macro2::TokenStream {
+        let input_file = if file_path.is_relative() {
             let crate_root = get_crate_root().unwrap();
-            crate_root.join(self.input_file)
+            crate_root.join(file_path)
         } else {
-            PathBuf::from(self.input_file)
+            PathBuf::from(file_path)
         };
 
         let json = std::fs::read_to_string(&input_file).unwrap_or_else(|err| {
@@ -54,7 +67,7 @@ impl<'a, 'b> Generator<'a, 'b> {
         expander.expand(&schema)
     }
 
-    pub fn generate_to_file<P: ?Sized + AsRef<Path>>(&self, output_file: &'b P) -> io::Result<()> {
+    pub fn generate_to_file<P: ?Sized + AsRef<Path>>(&self, output_file: &P) -> io::Result<()> {
         use std::process::Command;
         let tokens = self.generate();
         let out = tokens.to_string();
@@ -68,23 +81,23 @@ impl<'a, 'b> Generator<'a, 'b> {
 
 #[derive(Debug, PartialEq)]
 #[must_use]
-pub struct GeneratorBuilder<'a, 'b> {
-    inner: Generator<'a, 'b>,
+pub struct GeneratorBuilder<'a> {
+    inner: Generator<'a>,
 }
 
-impl<'a, 'b> Default for GeneratorBuilder<'a, 'b> {
+impl<'a> Default for GeneratorBuilder<'a> {
     fn default() -> Self {
         Self {
             inner: Generator {
                 root_name: None,
                 schemafy_path: "::schemafy_core::",
-                input_file: Path::new("schema.json"),
+                root: Input::File(PathBuf::from("schema.json")),
             },
         }
     }
 }
 
-impl<'a, 'b> GeneratorBuilder<'a, 'b> {
+impl<'a> GeneratorBuilder<'a> {
     pub fn with_root_name(mut self, root_name: Option<String>) -> Self {
         self.inner.root_name = root_name;
         self
@@ -93,15 +106,15 @@ impl<'a, 'b> GeneratorBuilder<'a, 'b> {
         self.inner.root_name = Some(root_name.to_string());
         self
     }
-    pub fn with_input<P: ?Sized + AsRef<Path>>(mut self, input_file: &'b P) -> Self {
-        self.inner.input_file = input_file.as_ref();
+    pub fn with_input(mut self, input_file: Input) -> Self {
+        self.inner.root = input_file;
         self
     }
     pub fn with_schemafy_path(mut self, schemafy_path: &'a str) -> Self {
         self.inner.schemafy_path = schemafy_path;
         self
     }
-    pub fn build(self) -> Generator<'a, 'b> {
+    pub fn build(self) -> Generator<'a> {
         self.inner
     }
 }

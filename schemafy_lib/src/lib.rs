@@ -69,7 +69,7 @@ use uriparse::{Fragment, URI};
 
 pub use schema::{Schema, SimpleTypes};
 
-pub use generator::{Generator, GeneratorBuilder};
+pub use generator::{Generator, GeneratorBuilder, Input};
 
 use proc_macro2::{Span, TokenStream};
 

@@ -49,6 +49,8 @@
 //! }
 //! ```
 
+use std::path::PathBuf;
+
 /// Generate Rust types from a JSON schema.
 ///
 /// If the `root` parameter is supplied, then a type will be
@@ -79,7 +81,7 @@ pub fn schemafy(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input_file = def.input_file.value();
     schemafy_lib::Generator::builder()
         .with_root_name(root_name)
-        .with_input(&input_file)
+        .with_input(schemafy_lib::Input::File(PathBuf::from(input_file)))
         .build()
         .generate()
         .into()
