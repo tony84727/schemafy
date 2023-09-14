@@ -2,7 +2,7 @@
 name = "schemafy"
 version = "0.6.0" # VERSION_TAG
 authors = ["Markus Westerlind <marwes91@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 description = "Generates serializable Rust types from a json schema"
 license = "MIT"
