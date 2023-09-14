@@ -22,7 +22,7 @@ pub struct Generator<'a, 'b> {
     /// the default should be fine.
     pub schemafy_path: &'a str,
     /// The JSON schema file to read
-    pub input_file: &'b Path,
+    pub source: Source<'b>,
 }
 
 impl<'a, 'b> Generator<'a, 'b> {
@@ -32,11 +32,29 @@ impl<'a, 'b> Generator<'a, 'b> {
     }
 
     pub fn generate(&self) -> proc_macro2::TokenStream {
-        let input_file = if self.input_file.is_relative() {
+        match &self.source {
+            Source::Path(path) => self.generate_from_path(path),
+            Source::Url(_url) => todo!(),
+        }
+    }
+
+    pub fn generate_to_file<P: ?Sized + AsRef<Path>>(&self, output_file: &'b P) -> io::Result<()> {
+        use std::process::Command;
+        let tokens = self.generate();
+        let out = tokens.to_string();
+        std::fs::write(output_file, &out)?;
+        Command::new("rustfmt")
+            .arg(output_file.as_ref().as_os_str())
+            .output()?;
+        Ok(())
+    }
+
+    fn generate_from_path(&self, source: &'b Path) -> proc_macro2::TokenStream {
+        let input_file = if source.is_relative() {
             let crate_root = get_crate_root().unwrap();
-            crate_root.join(self.input_file)
+            crate_root.join(source)
         } else {
-            PathBuf::from(self.input_file)
+            PathBuf::from(source)
         };
 
         let json = std::fs::read_to_string(&input_file).unwrap_or_else(|err| {
@@ -53,17 +71,6 @@ impl<'a, 'b> Generator<'a, 'b> {
         let mut expander = Expander::new(self.root_name.as_deref(), self.schemafy_path, &schema);
         expander.expand(&schema)
     }
-
-    pub fn generate_to_file<P: ?Sized + AsRef<Path>>(&self, output_file: &'b P) -> io::Result<()> {
-        use std::process::Command;
-        let tokens = self.generate();
-        let out = tokens.to_string();
-        std::fs::write(output_file, &out)?;
-        Command::new("rustfmt")
-            .arg(output_file.as_ref().as_os_str())
-            .output()?;
-        Ok(())
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -78,7 +85,7 @@ impl<'a, 'b> Default for GeneratorBuilder<'a, 'b> {
             inner: Generator {
                 root_name: None,
                 schemafy_path: "::schemafy_core::",
-                input_file: Path::new("schema.json"),
+                source: Source::Path(Path::new("schema.json")),
             },
         }
     }
@@ -94,7 +101,7 @@ impl<'a, 'b> GeneratorBuilder<'a, 'b> {
         self
     }
     pub fn with_input_file<P: ?Sized + AsRef<Path>>(mut self, input_file: &'b P) -> Self {
-        self.inner.input_file = input_file.as_ref();
+        self.inner.source = Source::Path(input_file.as_ref());
         self
     }
     pub fn with_schemafy_path(mut self, schemafy_path: &'a str) -> Self {
@@ -124,4 +131,10 @@ fn get_crate_root() -> std::io::Result<PathBuf> {
     }
 
     Ok(current_dir)
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub enum Source<'a> {
+    Path(&'a Path),
+    Url(url::Url),
 }
