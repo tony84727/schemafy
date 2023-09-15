@@ -162,3 +162,12 @@ impl Source for FileSource {
         })
     }
 }
+
+pub struct RemoteSource(url::Url);
+
+impl Source for RemoteSource {
+    fn load(&self) -> Schema {
+        let Self(url) = self;
+        reqwest::blocking::get(url.clone()).unwrap().json().unwrap()
+    }
+}
