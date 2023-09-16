@@ -1,4 +1,4 @@
-use crate::Expander;
+use crate::{Expander, Schema};
 use std::{
     io,
     path::{Path, PathBuf},
@@ -11,7 +11,10 @@ use std::{
 /// the [`generate()`](fn.generate.html) convenience method instead.
 #[derive(Debug, PartialEq)]
 #[must_use]
-pub struct Generator<'a, 'b> {
+pub struct Generator<'a, S>
+where
+    S: Source,
+{
     /// The name of the root type defined by the schema. If the schema
     /// does not define a root type (some schemas are simply a
     /// collection of definitions) then simply pass `None`.
@@ -22,43 +25,24 @@ pub struct Generator<'a, 'b> {
     /// the default should be fine.
     pub schemafy_path: &'a str,
     /// The JSON schema file to read
-    pub input_file: &'b Path,
+    pub source: S,
 }
 
-impl<'a, 'b> Generator<'a, 'b> {
-    /// Get a builder for the Generator
-    pub fn builder() -> GeneratorBuilder<'a, 'b> {
-        GeneratorBuilder::default()
-    }
-
+impl<'a, S> Generator<'a, S>
+where
+    S: Source,
+{
     pub fn generate(&self) -> proc_macro2::TokenStream {
-        let input_file = if self.input_file.is_relative() {
-            let crate_root = get_crate_root().unwrap();
-            crate_root.join(self.input_file)
-        } else {
-            PathBuf::from(self.input_file)
-        };
-
-        let json = std::fs::read_to_string(&input_file).unwrap_or_else(|err| {
-            panic!("Unable to read `{}`: {}", input_file.to_string_lossy(), err)
-        });
-
-        let schema = serde_json::from_str(&json).unwrap_or_else(|err| {
-            panic!(
-                "Cannot parse `{}` as JSON: {}",
-                input_file.to_string_lossy(),
-                err
-            )
-        });
+        let schema = self.source.load();
         let mut expander = Expander::new(self.root_name.as_deref(), self.schemafy_path, &schema);
         expander.expand(&schema)
     }
 
-    pub fn generate_to_file<P: ?Sized + AsRef<Path>>(&self, output_file: &'b P) -> io::Result<()> {
+    pub fn generate_to_file<P: AsRef<Path>>(&self, output_file: P) -> io::Result<()> {
         use std::process::Command;
         let tokens = self.generate();
         let out = tokens.to_string();
-        std::fs::write(output_file, &out)?;
+        std::fs::write(&output_file, &out)?;
         Command::new("rustfmt")
             .arg(output_file.as_ref().as_os_str())
             .output()?;
@@ -66,25 +50,44 @@ impl<'a, 'b> Generator<'a, 'b> {
     }
 }
 
-#[derive(Debug, PartialEq)]
-#[must_use]
-pub struct GeneratorBuilder<'a, 'b> {
-    inner: Generator<'a, 'b>,
+impl<'a, S> Generator<'a, S>
+where
+    S: Source,
+{
+    /// Get a builder for the Generator
+    pub fn builder() -> GeneratorBuilder<'a, S> {
+        GeneratorBuilder::default()
+    }
 }
 
-impl<'a, 'b> Default for GeneratorBuilder<'a, 'b> {
+#[derive(Debug, PartialEq)]
+#[must_use]
+pub struct GeneratorBuilder<'a, S>
+where
+    S: Source,
+{
+    inner: Generator<'a, S>,
+}
+
+impl<'a, S> Default for GeneratorBuilder<'a, S>
+where
+    S: Source,
+{
     fn default() -> Self {
         Self {
             inner: Generator {
                 root_name: None,
                 schemafy_path: "::schemafy_core::",
-                input_file: Path::new("schema.json"),
+                source: Default::default(),
             },
         }
     }
 }
 
-impl<'a, 'b> GeneratorBuilder<'a, 'b> {
+impl<'a, S> GeneratorBuilder<'a, S>
+where
+    S: Source,
+{
     pub fn with_root_name(mut self, root_name: Option<String>) -> Self {
         self.inner.root_name = root_name;
         self
@@ -93,16 +96,26 @@ impl<'a, 'b> GeneratorBuilder<'a, 'b> {
         self.inner.root_name = Some(root_name.to_string());
         self
     }
-    pub fn with_input_file<P: ?Sized + AsRef<Path>>(mut self, input_file: &'b P) -> Self {
-        self.inner.input_file = input_file.as_ref();
-        self
-    }
+
     pub fn with_schemafy_path(mut self, schemafy_path: &'a str) -> Self {
         self.inner.schemafy_path = schemafy_path;
         self
     }
-    pub fn build(self) -> Generator<'a, 'b> {
+
+    pub fn with_source(mut self, source: S) -> Self {
+        self.inner.source = source;
+        self
+    }
+
+    pub fn build(self) -> Generator<'a, S> {
         self.inner
+    }
+}
+
+impl<'a> GeneratorBuilder<'a, FileSource> {
+    pub fn with_input_file<P: AsRef<Path>>(mut self, input_file: P) -> Self {
+        self.inner.source = FileSource::new(input_file.as_ref());
+        self
     }
 }
 
@@ -124,4 +137,67 @@ fn get_crate_root() -> std::io::Result<PathBuf> {
     }
 
     Ok(current_dir)
+}
+
+pub trait Source: Default {
+    fn load(&self) -> Schema;
+}
+
+pub struct FileSource(PathBuf);
+
+impl FileSource {
+    fn new<P: Into<PathBuf>>(p: P) -> Self {
+        Self(p.into())
+    }
+}
+
+impl Default for FileSource {
+    fn default() -> Self {
+        FileSource::new("schema.json")
+    }
+}
+
+impl Source for FileSource {
+    fn load(&self) -> Schema {
+        let Self(source) = self;
+        let input_file = if source.is_relative() {
+            let crate_root = get_crate_root().unwrap();
+            crate_root.join(source)
+        } else {
+            PathBuf::from(source)
+        };
+
+        let json = std::fs::read_to_string(&input_file).unwrap_or_else(|err| {
+            panic!("Unable to read `{}`: {}", input_file.to_string_lossy(), err)
+        });
+
+        serde_json::from_str(&json).unwrap_or_else(|err| {
+            panic!(
+                "Cannot parse `{}` as JSON: {}",
+                input_file.to_string_lossy(),
+                err
+            )
+        })
+    }
+}
+
+pub struct RemoteSource(url::Url);
+
+impl RemoteSource {
+    fn new(source: &str) -> Result<Self, url::ParseError> {
+        Ok(Self(url::Url::parse(source)?))
+    }
+}
+
+impl Source for RemoteSource {
+    fn load(&self) -> Schema {
+        let Self(url) = self;
+        reqwest::blocking::get(url.clone()).unwrap().json().unwrap()
+    }
+}
+
+impl Default for RemoteSource {
+    fn default() -> Self {
+        Self::new("file://schema.json").unwrap()
+    }
 }

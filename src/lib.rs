@@ -49,6 +49,8 @@
 //! }
 //! ```
 
+use schemafy_lib::generator::RemoteSource;
+
 /// Generate Rust types from a JSON schema.
 ///
 /// If the `root` parameter is supplied, then a type will be
@@ -76,10 +78,10 @@
 pub fn schemafy(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let def = syn::parse_macro_input!(tokens as Def);
     let root_name = def.root;
-    let input_file = def.input_file.value();
+    let source = def.source.value();
     schemafy_lib::Generator::builder()
         .with_root_name(root_name)
-        .with_input_file(&input_file)
+        .with_source(RemoteSource::new(&source).unwrap())
         .build()
         .generate()
         .into()
@@ -87,7 +89,7 @@ pub fn schemafy(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 struct Def {
     root: Option<String>,
-    input_file: syn::LitStr,
+    source: syn::LitStr,
 }
 
 impl syn::parse::Parse for Def {
