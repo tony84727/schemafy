@@ -50,9 +50,12 @@ where
     }
 }
 
-impl<'a> Generator<'a, FileSource> {
+impl<'a, S> Generator<'a, S>
+where
+    S: Source,
+{
     /// Get a builder for the Generator
-    pub fn builder() -> GeneratorBuilder<'a, FileSource> {
+    pub fn builder() -> GeneratorBuilder<'a, S> {
         GeneratorBuilder::default()
     }
 }
@@ -66,13 +69,16 @@ where
     inner: Generator<'a, S>,
 }
 
-impl<'a> Default for GeneratorBuilder<'a, FileSource> {
+impl<'a, S> Default for GeneratorBuilder<'a, S>
+where
+    S: Source,
+{
     fn default() -> Self {
         Self {
             inner: Generator {
                 root_name: None,
                 schemafy_path: "::schemafy_core::",
-                source: FileSource::new("schema.json"),
+                source: Default::default(),
             },
         }
     }
@@ -95,6 +101,12 @@ where
         self.inner.schemafy_path = schemafy_path;
         self
     }
+
+    pub fn with_source(mut self, source: S) -> Self {
+        self.inner.source = source;
+        self
+    }
+
     pub fn build(self) -> Generator<'a, S> {
         self.inner
     }
@@ -127,7 +139,7 @@ fn get_crate_root() -> std::io::Result<PathBuf> {
     Ok(current_dir)
 }
 
-pub trait Source {
+pub trait Source: Default {
     fn load(&self) -> Schema;
 }
 
@@ -136,6 +148,12 @@ pub struct FileSource(PathBuf);
 impl FileSource {
     fn new<P: Into<PathBuf>>(p: P) -> Self {
         Self(p.into())
+    }
+}
+
+impl Default for FileSource {
+    fn default() -> Self {
+        FileSource::new("schema.json")
     }
 }
 
@@ -165,9 +183,21 @@ impl Source for FileSource {
 
 pub struct RemoteSource(url::Url);
 
+impl RemoteSource {
+    fn new(source: &str) -> Result<Self, url::ParseError> {
+        Ok(Self(url::Url::parse(source)?))
+    }
+}
+
 impl Source for RemoteSource {
     fn load(&self) -> Schema {
         let Self(url) = self;
         reqwest::blocking::get(url.clone()).unwrap().json().unwrap()
+    }
+}
+
+impl Default for RemoteSource {
+    fn default() -> Self {
+        Self::new("file://schema.json").unwrap()
     }
 }
